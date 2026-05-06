@@ -20,6 +20,8 @@ versions).
 """
 from __future__ import annotations
 
+import re
+
 from rich.console import Console
 from rich.markup import escape
 
@@ -107,6 +109,61 @@ def _segmented_bar(
     if empty_cells > 0:
         parts.append(f"[dim]{BAR_EMPTY_CHAR * empty_cells}[/dim]")
     return "".join(parts)
+
+
+_SEG_RE = re.compile(r"\[(\w+)\]([^\[]+)\[/\w+\]")
+
+
+def _overlay_threshold_marker(
+    bar: str,
+    threshold_ratio: float,
+    bar_width: int,
+) -> str:
+    """Replace one cell of `bar` with [yellow]│[/yellow] at the threshold index.
+
+    `bar` is the rich-markup string from `_segmented_bar`:
+        [cyan]████[/cyan][magenta]██[/magenta][dim]░░░░░░░░[/dim]
+    The function locates the segment containing cell
+    `int(threshold_ratio * bar_width)` and splits it around a 1-cell
+    yellow `│`. Returns `bar` unchanged when `bar_width <= 0`.
+    """
+    if bar_width <= 0:
+        return bar
+
+    marker_cell = max(0, min(bar_width - 1, int(threshold_ratio * bar_width)))
+
+    out_parts: list[str] = []
+    cell_offset = 0
+    last_end = 0
+    for match in _SEG_RE.finditer(bar):
+        if match.start() > last_end:
+            out_parts.append(bar[last_end:match.start()])
+
+        tag = match.group(1)
+        content = match.group(2)
+        seg_len = len(content)
+        seg_start = cell_offset
+        seg_end = cell_offset + seg_len
+
+        if seg_start <= marker_cell < seg_end:
+            local_idx = marker_cell - seg_start
+            before = content[:local_idx]
+            after = content[local_idx + 1 :]
+            if before:
+                out_parts.append(f"[{tag}]{before}[/{tag}]")
+            out_parts.append("[yellow]│[/yellow]")
+            if after:
+                out_parts.append(f"[{tag}]{after}[/{tag}]")
+        else:
+            out_parts.append(match.group(0))
+
+        cell_offset = seg_end
+        last_end = match.end()
+
+    if last_end < len(bar):
+        out_parts.append(bar[last_end:])
+
+    return "".join(out_parts)
 
 
 def _maybe_render_boundary(console: Console, prev: Talk | None, curr: Talk) -> None:

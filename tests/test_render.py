@@ -11,6 +11,7 @@ from tokenifier.render import (
     BAR_EMPTY_CHAR,
     _bar_width,
     _segmented_bar,
+    _overlay_threshold_marker,
 )
 
 
@@ -213,4 +214,68 @@ def test_compact_talk_uses_compact_annotation():
     # (Talk 2 should NOT have any "+NK" line — only Talk 1's "+180K" remains.)
     talk2_block = out.split("Talk  2")[1]
     assert "+" not in talk2_block.split("free")[0]
+
+
+# ---- Threshold marker overlay ----
+
+
+def test_threshold_marker_in_dim_region():
+    # 32% filled, threshold at 92% (cell 36 of 40) → marker lands in dim.
+    bar = _segmented_bar(carryover_ratio=0.32, delta_ratio=0.0, bar_width=40)
+    out = _overlay_threshold_marker(bar, 0.92, 40)
+    assert "[yellow]│[/yellow]" in out
+    # Cyan segment is intact (marker did not split it).
+    assert out.count("[cyan]") == 1
+    # Dim segment was split into two runs.
+    assert out.count("[dim]") == 2
+
+
+def test_threshold_marker_in_filled_region():
+    # 95% filled, threshold at 92% (cell 36 of 40) → marker overlays cyan.
+    bar = _segmented_bar(carryover_ratio=0.95, delta_ratio=0.0, bar_width=40)
+    out = _overlay_threshold_marker(bar, 0.92, 40)
+    assert "[yellow]│[/yellow]" in out
+    # Cyan segment was split into two runs.
+    assert out.count("[cyan]") == 2
+
+
+def test_threshold_marker_replaces_exactly_one_cell():
+    # Total fill+empty chars before overlay = bar_width.
+    # After overlay: bar_width - 1 fill+empty chars + 1 yellow │.
+    bar = _segmented_bar(carryover_ratio=0.5, delta_ratio=0.0, bar_width=40)
+    out = _overlay_threshold_marker(bar, 0.92, 40)
+    fill_empty = out.count(BAR_FILL_CHAR) + out.count(BAR_EMPTY_CHAR)
+    assert fill_empty == 39
+    assert out.count("│") == 1
+
+
+def test_threshold_marker_position_scales_with_width():
+    # At width 20, threshold 0.5 → cell 10. At width 40, → cell 20.
+    bar20 = _segmented_bar(carryover_ratio=0.0, delta_ratio=0.0, bar_width=20)
+    bar40 = _segmented_bar(carryover_ratio=0.0, delta_ratio=0.0, bar_width=40)
+    out20 = _overlay_threshold_marker(bar20, 0.5, 20)
+    out40 = _overlay_threshold_marker(bar40, 0.5, 40)
+    # Both have a marker; the dim-cell counts before the marker reflect
+    # the proportional position.
+    # bar20: 10 dim cells, then │, then 9 dim cells.
+    # bar40: 20 dim cells, then │, then 19 dim cells.
+    assert "[dim]" + BAR_EMPTY_CHAR * 10 + "[/dim][yellow]│[/yellow]" in out20
+    assert "[dim]" + BAR_EMPTY_CHAR * 20 + "[/dim][yellow]│[/yellow]" in out40
+
+
+def test_threshold_marker_at_segment_boundary():
+    # carryover_ratio = 0.5, threshold_ratio = 0.5, width 40 → marker at cell 20.
+    # Cyan segment runs cells 0..19, dim runs cells 20..39. Marker_cell=20
+    # belongs to the dim segment (start <= 20 < end).
+    bar = _segmented_bar(carryover_ratio=0.5, delta_ratio=0.0, bar_width=40)
+    out = _overlay_threshold_marker(bar, 0.5, 40)
+    # Cyan stays intact (one [cyan]…[/cyan] run of 20 cells).
+    assert "[cyan]" + BAR_FILL_CHAR * 20 + "[/cyan]" in out
+    # Dim is split with the marker between the two halves.
+    assert "[/cyan][yellow]│[/yellow][dim]" in out
+
+
+def test_threshold_marker_zero_bar_width_returns_input():
+    out = _overlay_threshold_marker("", 0.92, 0)
+    assert out == ""
 
