@@ -182,3 +182,35 @@ def test_segmented_bar_single_filled_cell_with_both_sides_renders_magenta():
     assert "[magenta]" in bar
     assert "[cyan]" not in bar
 
+
+# ---- Talk delta annotation ----
+
+
+def test_first_talk_annotation_shows_full_delta():
+    # Single talk, 64K input on 200K → 32%. delta = full 64K (no prior).
+    turn = _make_turn(input_total=64_000)
+    out = _render_to_text([turn])
+    assert "+64K" in out
+
+
+def test_subsequent_talk_annotation_shows_delta_only():
+    # Talk 1: 50K input. Talk 2: 80K input → delta = 30K.
+    a = _make_turn(input_total=50_000, message_id="a")
+    b = _make_turn(input_total=80_000, message_id="b")
+    out = _render_to_text([a, b])
+    # Talk 1 says +50K, talk 2 says +30K.
+    assert "+50K" in out
+    assert "+30K" in out
+
+
+def test_compact_talk_uses_compact_annotation():
+    # Talk 1: 180K input. Talk 2: 40K input (compact event) → annotate "compact".
+    a = _make_turn(input_total=180_000, message_id="a")
+    b = _make_turn(input_total=40_000, message_id="b")
+    out = _render_to_text([a, b])
+    assert "compact" in out
+    # Make sure we did not emit a phantom positive delta for the compact talk.
+    # (Talk 2 should NOT have any "+NK" line — only Talk 1's "+180K" remains.)
+    talk2_block = out.split("Talk  2")[1]
+    assert "+" not in talk2_block.split("free")[0]
+

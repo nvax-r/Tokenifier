@@ -125,8 +125,17 @@ def _maybe_render_boundary(console: Console, prev: Talk | None, curr: Talk) -> N
     console.print()
 
 
-def _render_talk(console: Console, talk: Talk, idx: int) -> None:
-    """Render one talk's 4-line detail block."""
+def _render_talk(
+    console: Console,
+    talk: Talk,
+    idx: int,
+    prev_input_total: int,
+) -> None:
+    """Render one talk's 4-line detail block.
+
+    `prev_input_total` is the previous rendered talk's `final_input_total`
+    (or 0 for the first talk). Used to compute and color the input delta.
+    """
     bar_width = _bar_width(console.width)
     ctx, cap = lookup(talk.model)
 
@@ -134,7 +143,14 @@ def _render_talk(console: Console, talk: Talk, idx: int) -> None:
     output_total = talk.total_output
     free = max(0, ctx - input_total - output_total)
 
+    raw_delta = input_total - prev_input_total
+    is_compact = raw_delta < 0
+    delta = max(0, raw_delta)
+    carryover = input_total - delta
+
     input_ratio = input_total / ctx if ctx > 0 else 0.0
+    carryover_ratio = carryover / ctx if ctx > 0 else 0.0
+    delta_ratio = delta / ctx if ctx > 0 else 0.0
     output_ratio_window = output_total / ctx if ctx > 0 else 0.0
     output_ratio_cap = output_total / cap if cap > 0 else 0.0
 
@@ -149,11 +165,15 @@ def _render_talk(console: Console, talk: Talk, idx: int) -> None:
         f"{talk.turn_count} {turn_label}{danger_marker}"
     )
 
-    # Input bar (vs window).
-    input_bar = _bar(input_ratio, bar_width, "cyan")
+    # Input bar — segmented carryover + delta.
+    input_bar = _segmented_bar(carryover_ratio, delta_ratio, bar_width)
     input_value = _format_tokens(input_total).rjust(5)
-    input_pct = f"({int(round(input_ratio * 100)):>2}%)"
-    console.print(f"        │ input  {input_bar}  {input_value}  {input_pct}")
+    pct = int(round(input_ratio * 100))
+    if is_compact:
+        input_annotation = f"({pct:>2}% · compact)"
+    else:
+        input_annotation = f"({pct:>2}% · +{_format_tokens(delta)})"
+    console.print(f"        │ input  {input_bar}  {input_value}  {input_annotation}")
 
     # Output bar — scaled to cap (truncation lever per AGENTS.md).
     output_bar = _bar(output_ratio_cap, bar_width, "yellow")
@@ -182,9 +202,11 @@ def render(talks: list[Talk], console: Console | None = None) -> None:
     if console is None:
         console = Console()
     prev: Talk | None = None
+    prev_input_total: int = 0
     for idx, talk in enumerate(talks, start=1):
         if not talk.turns:
             continue
         _maybe_render_boundary(console, prev, talk)
-        _render_talk(console, talk, idx)
+        _render_talk(console, talk, idx, prev_input_total)
         prev = talk
+        prev_input_total = talk.final_input_total
