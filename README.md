@@ -345,16 +345,6 @@ Trivial talks like "yes" or "ok" still grow input by a few thousand tokens. That
 
 ---
 
-## What it deliberately doesn't do
-
-- **Dollar-cost calculation** — use [ccusage](https://github.com/ryoppippi/ccusage)
-- **Real-time tailing** — runs against the JSONL after the fact
-- **Prompt-content analysis** — only structural sizes; we don't read your prose
-- **Sub-agent traffic** — sub-agents (sidechains) live in `<session-id>/subagents/agent-*.jsonl` and aren't included in the main view
-- **Codex CLI logs** — different schema; out of scope
-
----
-
 ## Two things Tokenifier handles automatically
 
 **Dedupe by `message.id`.** Parallel tool calls within one turn share an ID in the JSONL — schema reconnaissance found groups of up to 13 rows for one logical generation. Naively summing would 13× the count. Tokenifier dedupes so each generation is counted once.
