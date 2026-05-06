@@ -13,6 +13,20 @@ Talk  5 │ claude-opus-4-7[1m] [1M]   12 turns
 
 The input bar's two colours show *how much of the context this talk added* (magenta, with a `+ΔK` annotation) versus how much was already there from prior talks (cyan). The yellow `│` marks the auto-compaction threshold — when an input bar reaches it, Claude Code is about to summarise prior history.
 
+### Menu
+
+- [Why this exists](#why-this-exists) — what problem this solves and why it isn't `ccusage`
+- [What's in your context](#whats-in-your-context) — input vs output vs reasoning tokens
+- [What good context looks like](#what-good-context-looks-like) — quick health checklist
+- [Install](#install) — alias / `uv tool install` / raw `uv run`
+- [All the ways to use it](#all-the-ways-to-use-it) — nine invocation patterns
+- [How to read the chart](#how-to-read-the-chart) — bars, colours, annotations, dividers
+- [How to read the numbers](#how-to-read-the-numbers) — what each percentage *asks*, and what it doesn't mean
+- [How to evaluate your prompts and documents](#how-to-evaluate-your-prompts-and-documents) — diagnostic signals and fixes
+- [Two things Tokenifier handles automatically](#two-things-tokenifier-handles-automatically) — message-id dedupe and 1M Opus auto-detection
+- [Project layout](#project-layout) — file map
+- [Tests](#tests) — running the suite
+
 ---
 
 ## Why this exists
