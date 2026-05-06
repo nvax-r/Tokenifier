@@ -31,7 +31,7 @@ from tokenifier.model import Talk
 
 BAR_FILL_CHAR = "█"
 BAR_EMPTY_CHAR = "░"
-DANGER_THRESHOLD = 0.85
+COMPACT_THRESHOLD = 0.92
 
 
 def _bar_width(terminal_width: int) -> int:
@@ -211,7 +211,7 @@ def _render_talk(
     output_ratio_window = output_total / ctx if ctx > 0 else 0.0
     output_ratio_cap = output_total / cap if cap > 0 else 0.0
 
-    danger = input_ratio >= DANGER_THRESHOLD
+    danger = input_ratio >= COMPACT_THRESHOLD
     danger_marker = "  [red]⚠[/red]" if danger else ""
 
     # Header: "Talk N │ model [WINDOW]   K turn(s)  ⚠"
@@ -222,8 +222,10 @@ def _render_talk(
         f"{talk.turn_count} {turn_label}{danger_marker}"
     )
 
-    # Input bar — segmented carryover + delta.
+    # Input bar — segmented carryover + delta, then overlay the
+    # auto-compact threshold marker at the configured ratio.
     input_bar = _segmented_bar(carryover_ratio, delta_ratio, bar_width)
+    input_bar = _overlay_threshold_marker(input_bar, COMPACT_THRESHOLD, bar_width)
     input_value = _format_tokens(input_total).rjust(5)
     pct = int(round(input_ratio * 100))
     if is_compact:

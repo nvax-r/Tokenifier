@@ -56,24 +56,36 @@ def test_renders_turn_header_with_model_and_window():
 
 def test_input_bar_fills_proportionally():
     # 64K / 200K = 32% → at width=80, bar_width=40, expect 12 fill chars.
+    # The threshold marker overlays one dim cell at index 36, so the
+    # input-bar fill count is unchanged but its dim run is split.
     turn = _make_turn(input_total=64_000)
     out = _render_to_text([turn], width=80)
     bar_width = _bar_width(80)
     expected_fill = int(0.32 * bar_width)
-    expected_empty = bar_width - expected_fill
-    assert BAR_FILL_CHAR * expected_fill + BAR_EMPTY_CHAR * expected_empty in out
+    input_line = next(line for line in out.splitlines() if "input" in line)
+    assert input_line.count(BAR_FILL_CHAR) == expected_fill
+    # Two │ chars: the section divider at the line start AND the threshold marker.
+    assert input_line.count("│") == 2
 
 
-def test_danger_marker_appears_at_85_percent():
-    # 178K / 200K = 89% — danger zone, should show ⚠.
-    turn = _make_turn(input_total=178_000)
+def test_input_bar_shows_threshold_marker():
+    # The input line has the section divider │ and the threshold marker │.
+    turn = _make_turn(input_total=64_000)
+    out = _render_to_text([turn])
+    input_line = next(line for line in out.splitlines() if "input" in line)
+    assert input_line.count("│") == 2
+
+
+def test_danger_marker_appears_at_compact_threshold():
+    # 184K / 200K = 92% — at the auto-compact threshold, should show ⚠.
+    turn = _make_turn(input_total=184_000)
     out = _render_to_text([turn])
     assert "⚠" in out
 
 
-def test_no_danger_marker_below_threshold():
-    # 168K / 200K = 84% — below the 85% threshold.
-    turn = _make_turn(input_total=168_000)
+def test_no_danger_marker_just_below_compact_threshold():
+    # 180K / 200K = 90% — below the 92% threshold, no badge.
+    turn = _make_turn(input_total=180_000)
     out = _render_to_text([turn])
     assert "⚠" not in out
 
