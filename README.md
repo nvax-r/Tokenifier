@@ -6,23 +6,42 @@ You finish a long Claude Code session and wonder: *which* talk caused input to s
 
 ```
 Talk  5 │ claude-opus-4-7[1m] [1M]   12 turns
-        │ input  ███░░░░░░░░░░░░░░░░░░░░░░░░   77K  ( 8%)
+        │ input  ████████████░░░░░░░░░░░░│░░   77K  ( 8% · +14K)
         │ output ████░░░░░░░░░░░░░░░░░░░░░░░   12K  ( 1% of window · 10% of 128K cap)
         │ free                                911K headroom
 ```
+
+The input bar's two colours show *how much of the context this talk added* (magenta, with a `+ΔK` annotation) versus how much was already there from prior talks (cyan). The yellow `│` marks the auto-compaction threshold — when an input bar reaches it, Claude Code is about to summarise prior history.
 
 ---
 
 ## Why this exists
 
-Context efficiency matters. Two things to optimise:
+Most token tools answer **"how much am I spending?"** That's a fine question, and [`ccusage`](https://github.com/ryoppippi/ccusage) answers it well.
 
-1. **Input tokens should be useful.** Every token Claude reads — your project docs, prior conversation, tool results, system prompt — competes for finite window space. Wasted input is wasted context.
-2. **Output tokens should be maximised.** The output cap (e.g. 128K for Opus) is where Claude *thinks and answers*. Less output room means shorter responses, less thorough reasoning, and more truncation risk.
+Tokenifier answers a different one: **"Am I using my context window wisely?"**
 
-When input is bloated and output is tight, your context is bad. When input is lean and output has room, your context is good. Tokenifier helps you see which.
+These look similar. They aren't.
 
-This is **not** a cost tracker. [`ccusage`](https://github.com/ryoppippi/ccusage) covers that. Tokenifier measures *space*, not *money*.
+### Tokens-as-money vs. tokens-as-space
+
+If you're on a Max plan, an enterprise seat, or any setup with effectively unlimited budgets, the dollar question stops mattering. The space question doesn't.
+
+Every Claude Code turn happens inside a **fixed context window** — 200K tokens by default, 1M for Opus 4.7's `[1m]` variant. That window has to hold all of this at once:
+
+- the system prompt and tool definitions
+- your `CLAUDE.md` / `AGENTS.md` and project memory
+- the entire prior conversation
+- every file Claude has loaded
+- every tool result it has seen
+- room for Claude to *think* (extended-thinking tokens)
+- room for Claude to *write its answer*
+
+When the input side eats too much of that window, **the reasoning and output sides starve.** Claude has fewer tokens to think with; its answer gets cramped or truncated. Subtle quality regressions creep in that feel like "the model got worse" — when really, you just left it less room to operate.
+
+Claude Code's `/context` shows the *current* fill level but no history. There's no easy way to spot the rogue 80K file load three prompts ago without grepping JSONL by hand. Tokenifier is that view. The mental model in one line:
+
+> **Minimize wasted input. Preserve output capacity. Let the task decide actual output length.**
 
 ---
 
@@ -41,7 +60,7 @@ Everything sent INTO Claude before each turn:
 - Tool results (file contents, grep results, command output)
 - Anything you literally pasted
 
-**Cumulative.** Grows across a session. Counted in full every turn — Claude has no memory between turns; the whole history is replayed each time. Anthropic caches it for billing efficiency, but for context-window math the cache split doesn't matter — it all counts equally against the window.
+**Cumulative.** Grows across a session. Counted in full every turn — Claude has no memory between turns; the whole history is replayed each time. Anthropic caches portions of it to save you money, but the cache is a **billing trick, not a space trick**: a 90K cached prefix still occupies 90K of your window.
 
 ### Output tokens
 
@@ -60,8 +79,8 @@ A subset of output tokens. Claude "thinks" before answering — that thinking is
 Reasoning is double-edged:
 
 - More room for reasoning → better answers
-- But reasoning shares the output cap with the final response
-- And once it's done, it becomes input on the next turn (carrying forward as history)
+- But reasoning **shares the output cap** with the final response. A turn with 40K of thinking on Opus 4.7 has only 88K of the 128K cap left for the actual reply.
+- And once a turn ends, the output gets folded into history — so today's reasoning becomes tomorrow's input, carrying forward as conversation context.
 
 ---
 
@@ -69,10 +88,11 @@ Reasoning is double-edged:
 
 | Bar | Healthy state |
 |---|---|
-| **Input** | Below ~70% of window most of the session; below 85% always |
+| **Input** | Below ~70% of window most of the session; never crosses the yellow `│` (the 92% auto-compact line) |
+| **Magenta delta** | Small per talk — most growth is from useful new content, not bloat |
 | **Output** | Visible bars (Claude is producing real work) but never near the cap |
 | **Free** | Substantial — there's room to think |
-| **⚠ markers** | None or very rare |
+| **⚠ markers** | None or very rare. A `⚠` means this talk crossed the auto-compact line. |
 
 Bad context looks like:
 
@@ -204,14 +224,19 @@ Each block is one **talk** — one user prompt plus every assistant generation u
 
 ```
 Talk  5 │ claude-opus-4-7[1m] [1M]   12 turns
-        │ input  ███░░░░░░░░░░░░░░░░░░░░░░░░   77K  ( 8%)
+        │ input  ████████████░░░░░░░░░░░░│░░   77K  ( 8% · +14K)
         │ output ████░░░░░░░░░░░░░░░░░░░░░░░   12K  ( 1% of window · 10% of 128K cap)
         │ free                                911K headroom
 ```
 
-**Header line** — talk number, model identifier, context window in brackets, turn count. A `⚠` marker appears at the end of the header when input ≥ 85% of the window.
+**Header line** — talk number, model identifier, context window in brackets, turn count. A red `⚠` marker appears at the end of the header when input ≥ 92% of the window — i.e. when this talk crossed the auto-compact threshold (Claude Code's default).
 
-**Input bar** (cyan) — cumulative input at the END of the talk. Includes everything from the start of the session up through this talk's last turn.
+**Input bar** — cumulative input at the END of the talk. Two colours within the filled portion:
+
+- **Cyan `█`** — *carryover*: input that was already in the window before this talk started.
+- **Magenta `█`** — *this talk's delta*: the user prompt you typed plus the tool-result roundtrips it generated. The trailing `+ΔK` annotation is the same number in tokens — `+14K` means this talk grew the window by 14K.
+- **Yellow `│`** — the auto-compaction threshold (~92% of the window). Always at the same horizontal position regardless of fill, so you can eyeball how close any talk got to triggering compaction.
+- **`compact` annotation** — appears in place of `+ΔK` when this talk's input is *smaller* than the prior talk's high-water mark. That's a sign auto-compaction kicked in: Claude Code summarised prior history into a shorter form.
 
 **Output bar** (yellow) — total output Claude produced across all turns in this talk. Scaled to the output cap (the truncation lever): if this bar fills, Claude was about to be cut off.
 
@@ -230,6 +255,41 @@ Turn     = one assistant API call (one model generation)
 ```
 
 A talk-heavy with tool use can contain 20+ turns. A simple "yes" exchange is one talk with one turn.
+
+---
+
+## How to read the numbers
+
+Each percentage answers a different question. Three of them have important "what they don't mean" caveats.
+
+**Input %** — *Are you wasting context space?*
+Bigger isn't automatically worse. A complex task can legitimately need a lot of context. What you're hunting for is **surprise spikes** — a talk that suddenly jumps tens of percentage points usually means a rogue file load, a fat tool result, or a stale `CLAUDE.md`.
+
+**`+ΔK` annotation** — *How much did this single prompt cost the window?*
+The same number as the magenta segment, in tokens. Small `+ΔK` on a complex talk = efficient prompting. Large `+ΔK` on a trivial talk = waste — usually a tool that returned more than it needed to.
+
+**`compact` annotation** — *Did Claude Code summarise prior history this talk?*
+Replaces `+ΔK` when input dropped from the prior high-water mark. Compaction is lossy; expect the next few talks to feel like the model "forgot" things.
+
+**Output % of window** — *How much window did the answer occupy?*
+**Not** a "more is better" gauge. A reading of 5% just means the question didn't need much. Output length is the model's call, not yours — don't optimise it.
+
+**Output % of cap** — *Did Claude run out of room to answer?*
+The truncation alarm. Above ~80%, suspect that thinking was cut short or the final answer was clipped. Re-prompt with a tighter scope or break the task up.
+
+**Headroom** — *How much window is left to keep going?*
+When this trends toward zero across talks, the yellow `│` is approaching and auto-compaction is imminent. Time to checkpoint.
+
+### The asymmetry to internalize
+
+Most people reach for *"minimize input, maximize output."* That's not quite right. You don't want Claude to write more for the sake of writing more — verbose, padded answers are worse than concise correct ones.
+
+The asymmetry is:
+
+- **Input side:** *you* control it. Minimize **waste**, not size.
+- **Output side:** *the model* controls how much it writes. You control the ceiling. Maximize available **capacity**, not raw count.
+
+A turn with 8K input and 2K of tight, correct output is strictly better than the same input with 60K of waffle. Length isn't quality.
 
 ---
 
@@ -265,11 +325,17 @@ Claude was about to be truncated mid-response. The prompt asked for too much in 
 
 **Fix:** reset the session and retry with a tighter scope.
 
-### Signal: input drops sharply between talks
+### Signal: a talk shows `compact` instead of `+ΔK`
 
-Auto-compaction kicked in. Claude Code summarised earlier history into shorter form. You've lost some fidelity in prior conversation; tasks that depend on details from before the compact may be confused.
+Auto-compaction kicked in. Claude Code summarised earlier history into shorter form, so this talk's input is smaller than the previous talk's high-water mark. You've lost some fidelity in prior conversation; tasks that depend on details from before the compact may be confused.
 
 **Fix:** if compaction happened, consider whether to start a fresh session for the next phase of work. Compaction is lossy.
+
+### Signal: the input bar is approaching the yellow `│`
+
+You're getting close to the auto-compact line (92% by default). Compaction is destructive — exact prior text gets summarised away — so it's worth pre-empting it.
+
+**Fix:** ask the agent to write a checkpoint (a short note describing where you are in the work, files modified, decisions made) before the next big context-eating step. After compaction you can replay the checkpoint to restore working memory.
 
 ### Signal: input climbs steadily even on metadata talks
 
@@ -304,10 +370,11 @@ tokenifier/
 ├── model.py     # Pydantic Usage / Turn / Talk
 ├── caps.py      # Model → (context window, output cap) registry
 ├── parser.py    # JSONL → list[Talk] with filter + dedupe + 1M detect
-├── render.py    # list[Talk] → terminal output via rich
+├── render.py    # list[Talk] → terminal output: segmented input bars,
+│                # delta annotation, compact-threshold marker, danger badge
 ├── cli.py       # typer entrypoint
 └── __init__.py
-tests/                       # 38 unit tests
+tests/                       # 80 unit tests
 scripts/recon.py             # schema reconnaissance script (one-shot, preserved)
 docs/superpowers/specs/      # design docs (gitignored)
 ```
@@ -321,4 +388,4 @@ cd <path/to/Tokenifier>
 uv run pytest -v
 ```
 
-38 tests cover the data model, caps registry with `[1m]` handling, JSONL parser filter predicates, talk-grouping logic, 1M auto-promotion, and renderer behaviour (bar widths, danger marker, boundary divider).
+80 tests cover the data model, caps registry with `[1m]` handling, JSONL parser filter predicates, talk-grouping logic, 1M auto-promotion, and renderer behaviour: bar widths, segmented carryover/delta colours, the `+ΔK` and `compact` annotations, the auto-compact threshold marker, the re-grounded danger badge, and the boundary divider.
