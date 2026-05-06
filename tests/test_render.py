@@ -5,7 +5,13 @@ import pytest
 from rich.console import Console
 
 from tokenifier.model import Talk, Turn, Usage
-from tokenifier.render import render, BAR_FILL_CHAR, BAR_EMPTY_CHAR, _bar_width
+from tokenifier.render import (
+    render,
+    BAR_FILL_CHAR,
+    BAR_EMPTY_CHAR,
+    _bar_width,
+    _segmented_bar,
+)
 
 
 def _make_turn(model="claude-opus-4-7", input_total=64_000, output=8_000, message_id="m1"):
@@ -119,4 +125,60 @@ def test_divider_only_at_transitions():
     out = _render_to_text([a, b, c])
     assert out.count("boundary:") == 1
 
+
+# ---- Segmented input bar ----
+
+
+def test_segmented_bar_carryover_only():
+    bar = _segmented_bar(carryover_ratio=0.5, delta_ratio=0.0, bar_width=40)
+    assert "[cyan]" in bar
+    assert "[magenta]" not in bar
+    assert "[dim]" in bar
+
+
+def test_segmented_bar_delta_only():
+    bar = _segmented_bar(carryover_ratio=0.0, delta_ratio=0.5, bar_width=40)
+    assert "[magenta]" in bar
+    assert "[cyan]" not in bar
+    assert "[dim]" in bar
+
+
+def test_segmented_bar_both_segments_split_proportionally():
+    # 40 cells * 0.6 input_ratio = 24 filled, of which delta_share = 0.2/0.6
+    # → 8 magenta, 16 cyan, 16 dim.
+    bar = _segmented_bar(carryover_ratio=0.4, delta_ratio=0.2, bar_width=40)
+    assert "[cyan]" in bar
+    assert "[magenta]" in bar
+    assert bar.count(BAR_FILL_CHAR) == 24
+    assert bar.count(BAR_EMPTY_CHAR) == 16
+
+
+def test_segmented_bar_empty_when_both_zero():
+    bar = _segmented_bar(carryover_ratio=0.0, delta_ratio=0.0, bar_width=40)
+    assert "[cyan]" not in bar
+    assert "[magenta]" not in bar
+    assert bar.count(BAR_EMPTY_CHAR) == 40
+
+
+def test_segmented_bar_tiny_delta_clamped_to_at_least_one_cell():
+    # carryover_ratio 0.5 (20 cells), delta_ratio 0.01 (0.4 cells → 0).
+    # Should be forced to 1 magenta cell so the delta is visible.
+    bar = _segmented_bar(carryover_ratio=0.5, delta_ratio=0.01, bar_width=40)
+    assert "[magenta]" in bar
+    assert "[cyan]" in bar
+
+
+def test_segmented_bar_tiny_carryover_clamped_to_at_least_one_cell():
+    # carryover 0.01 (would round to 0 cells alongside large delta) → forced to 1.
+    bar = _segmented_bar(carryover_ratio=0.01, delta_ratio=0.5, bar_width=40)
+    assert "[cyan]" in bar
+    assert "[magenta]" in bar
+
+
+def test_segmented_bar_single_filled_cell_with_both_sides_renders_magenta():
+    # input_ratio = 0.025 → 1 filled cell. Both sides positive.
+    # Per spec: render the single cell as magenta.
+    bar = _segmented_bar(carryover_ratio=0.02, delta_ratio=0.005, bar_width=40)
+    assert "[magenta]" in bar
+    assert "[cyan]" not in bar
 

@@ -63,6 +63,52 @@ def _bar(ratio: float, bar_width: int, color: str) -> str:
     return fill_part + empty_part
 
 
+def _segmented_bar(
+    carryover_ratio: float,
+    delta_ratio: float,
+    bar_width: int,
+) -> str:
+    """Bar with two adjacent colored segments: cyan carryover, magenta delta.
+
+    See plan 2026-05-06 for cell-allocation rules.
+    """
+    input_ratio = carryover_ratio + delta_ratio
+    if input_ratio <= 0:
+        return f"[dim]{BAR_EMPTY_CHAR * bar_width}[/dim]"
+
+    filled_cells = max(1, int(input_ratio * bar_width))
+    if filled_cells > bar_width:
+        filled_cells = bar_width
+
+    if delta_ratio <= 0:
+        delta_cells = 0
+    elif carryover_ratio <= 0:
+        delta_cells = filled_cells
+    elif filled_cells == 1:
+        # Both positive but only one cell — show the delta (it's the
+        # actionable signal; the carryover is implied by prior bars).
+        delta_cells = 1
+    else:
+        delta_share = delta_ratio / input_ratio
+        delta_cells = int(delta_share * filled_cells)
+        if delta_cells == 0:
+            delta_cells = 1
+        elif delta_cells == filled_cells:
+            delta_cells = filled_cells - 1
+
+    carryover_cells = filled_cells - delta_cells
+    empty_cells = bar_width - filled_cells
+
+    parts = []
+    if carryover_cells > 0:
+        parts.append(f"[cyan]{BAR_FILL_CHAR * carryover_cells}[/cyan]")
+    if delta_cells > 0:
+        parts.append(f"[magenta]{BAR_FILL_CHAR * delta_cells}[/magenta]")
+    if empty_cells > 0:
+        parts.append(f"[dim]{BAR_EMPTY_CHAR * empty_cells}[/dim]")
+    return "".join(parts)
+
+
 def _maybe_render_boundary(console: Console, prev: Talk | None, curr: Talk) -> None:
     """Print a divider when `curr` switches model from `prev`.
 
